@@ -52,6 +52,7 @@ add_library(drawtool STATIC
   src/BoxStore.cpp
   src/BoxRenderer.cpp
   src/DrawTool.cpp
+  src/Skeleton.cpp
   src/DebugUI.cpp)
 add_library(drawtool::drawtool ALIAS drawtool)
 target_include_directories(drawtool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

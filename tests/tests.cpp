@@ -176,6 +176,122 @@ static void TestNoVtxOffsetBudget() {
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
 }
 
+static bool AllIndicesInRange() {
+    const ImDrawData* dd = ImGui::GetDrawData();
+    for (const ImDrawList* list : dd->CmdLists) {
+        for (int c = 0; c < list->CmdBuffer.Size; ++c) {
+            const ImDrawCmd& cmd = list->CmdBuffer[c];
+            if (cmd.UserCallback) continue;
+            for (unsigned k = 0; k < cmd.ElemCount; ++k) {
+                const unsigned idx = list->IdxBuffer[static_cast<int>(cmd.IdxOffset + k)] + cmd.VtxOffset;
+                if (idx >= static_cast<unsigned>(list->VtxBuffer.Size)) return false;
+            }
+        }
+    }
+    return true;
+}
+
+static void MissingHandPose(void*, const BoxView&, uint32_t, Pose& out) {
+    out = WalkPose(0.3f);
+    out.joints[HandL].x = std::nanf("");
+}
+
+static void TestSkeletonBoxes() {
+    ImGui::NewFrame();
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+
+    BoxStore s;
+    s.Add(Box(10, 10, 40, 90));      // visible
+    s.Add(Box(-500, 10, 40, 90));    // off-screen
+    s.Add(Box(100, 100, 10, 5));     // shorter than minHeight
+    s.Add(Box(300, 300, 50, 110));   // visible
+
+    for (int combo = 0; combo < 8; ++combo) {
+        {
+            const bool head = combo & 1, aa = combo & 4;
+            const float shadow = (combo & 2) ? 1.0f : 0.0f;
+            SkeletonStyle st;
+            st.antiAliased = aa;
+            st.drawHead = head;
+            st.shadowThickness = shadow;
+            uint32_t mv, mi;
+            SkeletonRenderer::MaxCostPerSkeleton(st, mv, mi);
+
+            int v0 = dl->VtxBuffer.Size, i0 = dl->IdxBuffer.Size;
+            RenderStats r = SkeletonRenderer::Draw(dl, s.View(), nullptr, nullptr, st, Rect{0, 0, 800, 600});
+            CHECK(r.drawn == 2 && r.culled == 2);
+            CHECK(r.vertices == 2 * mv && r.indices == 2 * mi);
+            CHECK(static_cast<uint32_t>(dl->VtxBuffer.Size - v0) == r.vertices);
+            CHECK(static_cast<uint32_t>(dl->IdxBuffer.Size - i0) == r.indices);
+            CHECK(dl->_VtxWritePtr == dl->VtxBuffer.Data + dl->VtxBuffer.Size);
+            CHECK(dl->_IdxWritePtr == dl->IdxBuffer.Data + dl->IdxBuffer.Size);
+
+            // A missing joint drops exactly its bone(s): HandL has one.
+            v0 = dl->VtxBuffer.Size;
+            r = SkeletonRenderer::Draw(dl, s.View(), &MissingHandPose, nullptr, st, Rect{0, 0, 800, 600});
+            const uint32_t passes = shadow > 0.0f ? 2 : 1;
+            CHECK(r.drawn == 2);
+            CHECK(r.vertices == 2 * (mv - passes * (aa ? 8 : 4)));
+            CHECK(static_cast<uint32_t>(dl->VtxBuffer.Size - v0) == r.vertices);
+        }
+    }
+    ImGui::Render();
+    CHECK(AllIndicesInRange());
+}
+
+static void TestSkeletonScreen() {
+    ImGui::NewFrame();
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    Pose poses[2];
+    const Pose stand = StandingPose();
+    for (int k = 0; k < JointCount; ++k) {
+        poses[0].joints[k] = ImVec2(100 + stand.joints[k].x * 50, 100 + stand.joints[k].y * 120);
+        poses[1].joints[k] = ImVec2(5000 + stand.joints[k].x * 50, 100 + stand.joints[k].y * 120);
+    }
+    const RenderStats r = SkeletonRenderer::DrawScreen(dl, poses, nullptr, 2, SkeletonStyle{}, Rect{0, 0, 800, 600});
+    CHECK(r.drawn == 1 && r.culled == 1);
+    ImGui::Render();
+
+    // Walk cycle wraps and stays finite.
+    const Pose a = WalkPose(0.25f), b = WalkPose(3.25f), c = WalkPose(-0.75f);
+    bool same = true, finite = true;
+    for (int k = 0; k < JointCount; ++k) {
+        same &= std::fabs(a.joints[k].x - b.joints[k].x) < 1e-4f && std::fabs(a.joints[k].y - c.joints[k].y) < 1e-4f;
+        finite &= std::isfinite(a.joints[k].x) && std::isfinite(a.joints[k].y);
+    }
+    CHECK(same && finite);
+}
+
+static void TestSkeletonLarge() {
+    BoxStore s;
+    for (int i = 0; i < 3000; ++i)
+        s.Add(Box(static_cast<float>(i % 700), static_cast<float>((i / 700) % 500), 30, 70));
+    SkeletonStyle st;  // head + shadow: 336 vtx each -> ~1M vtx
+
+    ImGui::NewFrame();
+    RenderStats r = SkeletonRenderer::Draw(ImGui::GetBackgroundDrawList(), s.View(), nullptr, nullptr, st,
+                                           Rect{0, 0, 2000, 2000});
+    CHECK(r.drawn == 3000);
+    ImGui::Render();
+    CHECK(AllIndicesInRange());
+
+    // Without VtxOffset: capped below 64K vertices, still valid.
+    ImGuiIO& io = ImGui::GetIO();
+    io.BackendFlags &= ~ImGuiBackendFlags_RendererHasVtxOffset;
+    ImGui::NewFrame();
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    r = SkeletonRenderer::Draw(dl, s.View(), nullptr, nullptr, st, Rect{0, 0, 2000, 2000});
+    if (sizeof(ImDrawIdx) == 2) {
+        uint32_t mv, mi;
+        SkeletonRenderer::MaxCostPerSkeleton(st, mv, mi);
+        CHECK(r.drawn == 65535 / mv);
+        CHECK(dl->VtxBuffer.Size < 65536);
+    }
+    ImGui::Render();
+    CHECK(AllIndicesInRange());
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;
+}
+
 static void TestToolLayers() {
     DrawTool tool;
     BoxLayer& a = tool.AddLayer("a");
@@ -188,6 +304,10 @@ static void TestToolLayers() {
     ImGui::NewFrame();
     const FrameStats& st = tool.Frame();
     CHECK(st.render.drawn == 1);
+    CHECK(st.skeletons.submitted == 0);
+    a.Boxes().SetSize(a.Boxes().HandleAt(0), {30, 70});
+    a.drawSkeletons = true;
+    CHECK(tool.Render().skeletons.drawn == 1);
     a.visible = false;
     CHECK(tool.Render().render.drawn == 0);
     ImGui::Render();
@@ -210,6 +330,9 @@ int main() {
     TestRenderer();
     TestLargeBatch16BitIndices();
     TestNoVtxOffsetBudget();
+    TestSkeletonBoxes();
+    TestSkeletonScreen();
+    TestSkeletonLarge();
     TestToolLayers();
 
     ImGui::DestroyContext();

@@ -10,5 +10,6 @@ void ShowDebugWindow(DrawTool& tool, bool* open = nullptr);
 
 // Just the style controls, for embedding in your own UI.
 bool EditStyle(BoxStyle& style);
+bool EditSkeletonStyle(SkeletonStyle& style);
 
 }  // namespace drawtool

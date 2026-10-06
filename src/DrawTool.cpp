@@ -65,16 +65,22 @@ const FrameStats& DrawTool::Render(ImDrawList* dl) {
     const Rect clip{mn.x, mn.y, mx.x, mx.y};
 
     stats_.render = {};
+    stats_.skeletons = {};
     stats_.layers = 0;
     for (auto& l : layers_) {
         l->lastStats = {};
+        l->lastSkeletonStats = {};
         if (!l->visible)
             continue;
         const BoxView view = l->Boxes().View();
-        l->lastStats = BoxRenderer::Draw(dl, view, l->Style(), clip);
+        if (l->drawBoxes)
+            l->lastStats = BoxRenderer::Draw(dl, view, l->Style(), clip);
+        if (l->drawSkeletons)
+            l->lastSkeletonStats = SkeletonRenderer::Draw(dl, view, l->Poses(), l->PoseContext(), l->Skeleton(), clip);
         if (l->Labels())
             BoxRenderer::DrawLabels(dl, view, clip, l->Labels(), l->LabelContext(), l->labelColor);
         stats_.render += l->lastStats;
+        stats_.skeletons += l->lastSkeletonStats;
         ++stats_.layers;
     }
     stats_.renderMs = MsSince(t0);
