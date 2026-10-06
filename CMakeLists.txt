@@ -58,7 +58,8 @@ target_include_directories(drawtool PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(drawtool PUBLIC imgui)
 
 if(MSVC)
-  target_compile_options(drawtool PRIVATE /W4 $<$<CONFIG:Release>:/O2 /fp:fast>)
+  # No /fp:fast: the renderer relies on NaN comparisons to reject bad boxes.
+  target_compile_options(drawtool PRIVATE /W4)
 else()
   target_compile_options(drawtool PRIVATE -Wall -Wextra $<$<CONFIG:Release>:-O3>)
 endif()

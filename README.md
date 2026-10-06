@@ -122,14 +122,30 @@ tracked.SetLabels([](void*, const BoxView& b, uint32_t i, char* buf, int cap) {
 
 ## Building
 
+The first configure downloads Dear ImGui v1.92.9, plus GLFW for the demo, so it needs `git` and internet access.
+
+**Windows (Visual Studio):** build type is picked at *build* time with `--config`:
+
+```bat
+cmake -S . -B build
+cmake --build build --config Release
+build\Release\drawtool_tests.exe
+build\Release\drawtool_bench.exe 10000 2000
+build\examples\Release\drawtool_demo.exe
+```
+
+**Linux / macOS / Ninja:** build type is picked at *configure* time:
+
 ```bash
-cmake -S . -B build -G Ninja             # fetches Dear ImGui v1.92.9 (+ GLFW for the demo)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/drawtool_tests                   # unit tests
 ./build/drawtool_bench 10000 2000        # headless CPU benchmark: [boxes] [frames]
 ./build/examples/drawtool_demo           # GLFW + OpenGL3 demo, 300 FPS cap
 ./build/examples/drawtool_demo --frames 3000   # run N frames, print average FPS
 ```
+
+Always benchmark a Release build. A Debug build is many times slower.
 
 CMake options:
 
