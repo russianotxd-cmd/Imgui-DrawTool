@@ -9,6 +9,7 @@
 #include "drawtool/BoxRenderer.h"
 #include "drawtool/BoxStore.h"
 #include "drawtool/Motion.h"
+#include "drawtool/Skeleton.h"
 #include "drawtool/Style.h"
 
 namespace drawtool {
@@ -46,11 +47,22 @@ public:
     LabelFn Labels() const { return labelFn_; }
     void* LabelContext() const { return labelCtx_; }
 
+    // Stick figure drawn inside each box. Poses come from SetPoses(); without
+    // one every box gets StandingPose().
+    void SetPoses(PoseFn fn, void* ctx = nullptr) { poseFn_ = fn; poseCtx_ = ctx; }
+    PoseFn Poses() const { return poseFn_; }
+    void* PoseContext() const { return poseCtx_; }
+    SkeletonStyle& Skeleton() { return skeletonStyle_; }
+    const SkeletonStyle& Skeleton() const { return skeletonStyle_; }
+
     bool visible = true;
-    bool paused = false;  // skip motion update, still draw
+    bool paused = false;         // skip motion update, still draw
+    bool drawBoxes = true;
+    bool drawSkeletons = false;
     ImU32 labelColor = IM_COL32_WHITE;
 
-    RenderStats lastStats;
+    RenderStats lastStats;          // boxes
+    RenderStats lastSkeletonStats;  // skeletons
 
 private:
     std::string name_;
@@ -61,10 +73,14 @@ private:
     bool hasBounds_ = false;
     LabelFn labelFn_ = nullptr;
     void* labelCtx_ = nullptr;
+    PoseFn poseFn_ = nullptr;
+    void* poseCtx_ = nullptr;
+    SkeletonStyle skeletonStyle_;
 };
 
 struct FrameStats {
-    RenderStats render;
+    RenderStats render;     // boxes
+    RenderStats skeletons;
     double updateMs = 0.0;  // CPU time in motion modules
     double renderMs = 0.0;  // CPU time tessellating into the draw list
     uint32_t layers = 0;

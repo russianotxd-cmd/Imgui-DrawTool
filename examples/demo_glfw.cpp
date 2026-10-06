@@ -5,6 +5,7 @@
 //   "drifters"  - self-simulated, wrapping, translucent fill
 //   "tracked"   - positions arrive from a slow "data feed" (30 Hz here) and
 //                 SmoothFollowMotion glides them at render rate, with labels
+//                 and an animated walking skeleton inside each box
 
 #include <chrono>
 #include <cstdio>
@@ -66,7 +67,8 @@ struct FakeFeed {
         handles.clear();
         for (int i = 0; i < count; ++i) {
             Target t;
-            t.size = {Rand(40.0f, 90.0f), Rand(80.0f, 180.0f)};
+            const float h = Rand(90.0f, 220.0f);
+            t.size = {h * Rand(0.40f, 0.50f), h};  // roughly human proportions
             t.pos = {Rand(0.0f, disp.x - t.size.x), Rand(0.0f, disp.y - t.size.y)};
             t.vel = {Rand(-250.0f, 250.0f), Rand(-250.0f, 250.0f)};
             targets.push_back(t);
@@ -98,6 +100,25 @@ struct FakeFeed {
     }
 };
 
+// Pose source for the skeleton layer: each box walks with its own cadence and
+// phase offset so they don't march in lockstep.
+struct WalkClock {
+    float time = 0.0f;
+    bool animate = true;
+};
+
+void WalkPoseFn(void* ctx, const BoxView& b, uint32_t i, Pose& out) {
+    const WalkClock& clock = *static_cast<const WalkClock*>(ctx);
+    if (!clock.animate) {
+        out = StandingPose();
+        return;
+    }
+    const uint64_t id = b.user[i];
+    const float cadence = 0.9f + 0.1f * static_cast<float>(id % 7);  // cycles per second
+    const float offset = 0.37f * static_cast<float>(id);
+    out = WalkPose(clock.time * cadence + offset);
+}
+
 int TrackedLabel(void*, const BoxView& b, uint32_t i, char* buf, int cap) {
     return std::snprintf(buf, static_cast<size_t>(cap), "#%llu  %.0fx%.0f",
                          static_cast<unsigned long long>(b.user[i]), b.w[i], b.h[i]);
@@ -112,15 +133,22 @@ int main(int argc, char** argv) {
         if (std::strcmp(argv[i], "--frames") == 0)
             maxFrames = std::atol(argv[i + 1]);
 
-    if (!glfwInit())
+    glfwSetErrorCallback([](int code, const char* msg) { std::fprintf(stderr, "GLFW error %d: %s\n", code, msg); });
+    if (!glfwInit()) {
+        std::fprintf(stderr, "Failed to initialize GLFW\n");
         return 1;
+    }
 
     const char* glslVersion = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     GLFWwindow* window = glfwCreateWindow(1600, 900, "ImGui DrawTool demo", nullptr, nullptr);
-    if (!window)
+    if (!window) {
+        std::fprintf(stderr, "Failed to create a window with an OpenGL 3.0 context. "
+                             "Update your GPU driver; remote desktop / VMs may lack OpenGL.\n");
+        glfwTerminate();
         return 1;
+    }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(0);  // vsync OFF -- otherwise you're capped at refresh rate
 
@@ -130,6 +158,7 @@ int main(int argc, char** argv) {
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glslVersion);
+    std::printf("DrawTool demo running (close the window or press Ctrl+C to quit)\n");
 
     DrawTool tool;
 
@@ -147,6 +176,10 @@ int main(int argc, char** argv) {
     tracked.Style().shape = BoxShape::Corners;
     tracked.Style().thickness = 2.0f;
     tracked.SetLabels(&TrackedLabel);
+    WalkClock walkClock;
+    tracked.drawSkeletons = true;
+    tracked.SetPoses(&WalkPoseFn, &walkClock);
+    tracked.Skeleton().thickness = 2.0f;
 
     FakeFeed feed;
     int bouncerCount = 5000, drifterCount = 300, trackedCount = 24;
@@ -174,6 +207,7 @@ int main(int argc, char** argv) {
         }
 
         feed.Tick(tracked.Boxes(), io.DeltaTime, io.DisplaySize);
+        walkClock.time += io.DeltaTime;
         tool.Frame();
 
         ImGui::SetNextWindowPos(ImVec2(10, 10), ImGuiCond_FirstUseEver);
@@ -189,6 +223,11 @@ int main(int argc, char** argv) {
             feed.rate = feedRate;
         if (repop)
             populated = false;
+        ImGui::Checkbox("Skeletons", &tracked.drawSkeletons);
+        ImGui::SameLine();
+        ImGui::Checkbox("Walk", &walkClock.animate);
+        ImGui::SameLine();
+        ImGui::Checkbox("Boxes##tracked", &tracked.drawBoxes);
         ImGui::Checkbox("Debug window", &showDebug);
         ImGui::End();
 

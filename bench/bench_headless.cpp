@@ -134,6 +134,24 @@ int main(int argc, char** argv) {
                     1000.0 / r.frameMs, r.vtx, r.cmds);
     }
 
+    for (bool aa : {true, false}) {
+        // Box + animated walking skeleton per box: the heaviest realistic case.
+        DrawTool tool;
+        BoxLayer& l = tool.AddLayer("skeletons");
+        l.Style().shape = BoxShape::Corners;
+        l.drawSkeletons = true;
+        l.Skeleton().antiAliased = aa;
+        l.SetPoses([](void*, const BoxView& b, uint32_t i, Pose& out) { out = WalkPose(0.37f * i + b.x[i] * 0.01f); });
+        l.EmplaceMotion<BounceMotion>();
+        Fill(l.Boxes(), boxes, rng, ImGui::GetIO().DisplaySize);
+        for (uint32_t i = 0; i < l.Boxes().Size(); ++i)
+            l.Boxes().H()[i] = 2.2f * l.Boxes().W()[i];
+        const Result r = Run(tool, frames);
+        std::printf("%-22s %10.4f %10.4f %10.4f %10.0f %9u %6u\n", aa ? "Corners+skeleton AA" : "Corners+skeleton noAA",
+                    r.frameMs, r.updateMs,
+                    r.renderMs, 1000.0 / r.frameMs, r.vtx, r.cmds);
+    }
+
     {
         BoxStore boxesRef;
         Fill(boxesRef, boxes, rng, ImGui::GetIO().DisplaySize);

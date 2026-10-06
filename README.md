@@ -43,6 +43,8 @@ include/drawtool/
   Style.h          BoxShape (Outline/Filled/FilledOutline/Corners), BoxStyle
   BoxRenderer.h    stateless tessellator: BoxView -> ImDrawList (+ labels)
   DrawTool.h       facade: layers, bounds, per-frame Update/Render, stats
+  Skeleton.h       16-joint human stick figure: poses (standing, walk cycle),
+                   drawn inside boxes or from screen-space joints
   DebugUI.h        optional ImGui window: timings, per-layer stats, live style editing
   FrameLimiter.h   header-only sleep+spin limiter (e.g. hold 300 FPS)
 ```
@@ -106,6 +108,49 @@ tracked.SetLabels([](void*, const BoxView& b, uint32_t i, char* buf, int cap) {
 });
 ```
 
+## Skeletons
+
+`Skeleton.h` draws a 2D human stick figure: 16 joints and 15 bones, with a
+head circle. It uses the same raw-write approach as the box renderer. There are
+two ways to drive it.
+
+**Inside boxes:** the pose is given in box-normalized coordinates, where (0,0)
+is the top-left and (1,1) the bottom-right, so the figure scales with the box.
+Turn it on per layer:
+
+```cpp
+tracked.drawSkeletons = true;                    // drawBoxes = false for skeleton only
+tracked.Skeleton().thickness = 2.0f;
+tracked.SetPoses([](void* ctx, const BoxView& b, uint32_t i, Pose& out) {
+    const float t = *static_cast<float*>(ctx);
+    out = WalkPose(t * 1.2f + 0.37f * static_cast<float>(b.user[i]));  // per-box phase
+}, &time);
+```
+
+Without `SetPoses`, every box gets `StandingPose()`. You can also build a
+`Pose` yourself: set `pose.joints[ElbowL] = {0.2f, 0.36f}` and so on.
+
+**Screen-space joints:** use this when you already have real joint positions,
+for example from a pose estimator or projected 3D bones:
+
+```cpp
+SkeletonRenderer::DrawScreen(dl, poses, colors, count, style, clip);
+```
+
+A joint whose `x` is NaN counts as missing, and the bones touching it are
+skipped. That covers trackers that lose a limb.
+
+Cost per skeleton (12-segment head, shadow on):
+
+| | vertices | 100 / frame | 1,000 / frame |
+|---|---|---|---|
+| `antiAliased = true` (default) | 336 | ~0.08 ms | ~0.95 ms |
+| `antiAliased = false` | 168 | ~0.05 ms | ~0.60 ms |
+
+These times include a corner box per skeleton. Anti-aliasing keeps diagonal
+limbs from crawling while they move. With hundreds of skeletons, turn it off or
+set `shadowThickness = 0`, which halves the geometry again.
+
 ## Hitting 300 FPS
 
 1. **Turn vsync off.** Use `glfwSwapInterval(0)` or `swapChain->Present(0, 0)`.
@@ -122,14 +167,30 @@ tracked.SetLabels([](void*, const BoxView& b, uint32_t i, char* buf, int cap) {
 
 ## Building
 
+The first configure downloads Dear ImGui v1.92.9, plus GLFW for the demo, so it needs `git` and internet access.
+
+**Windows (Visual Studio):** build type is picked at *build* time with `--config`:
+
+```bat
+cmake -S . -B build
+cmake --build build --config Release
+build\Release\drawtool_tests.exe
+build\Release\drawtool_bench.exe 10000 2000
+build\examples\Release\drawtool_demo.exe
+```
+
+**Linux / macOS / Ninja:** build type is picked at *configure* time:
+
 ```bash
-cmake -S . -B build -G Ninja             # fetches Dear ImGui v1.92.9 (+ GLFW for the demo)
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ./build/drawtool_tests                   # unit tests
 ./build/drawtool_bench 10000 2000        # headless CPU benchmark: [boxes] [frames]
 ./build/examples/drawtool_demo           # GLFW + OpenGL3 demo, 300 FPS cap
 ./build/examples/drawtool_demo --frames 3000   # run N frames, print average FPS
 ```
+
+Always benchmark a Release build. A Debug build is many times slower.
 
 CMake options:
 
