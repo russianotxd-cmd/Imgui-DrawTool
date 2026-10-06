@@ -133,15 +133,22 @@ int main(int argc, char** argv) {
         if (std::strcmp(argv[i], "--frames") == 0)
             maxFrames = std::atol(argv[i + 1]);
 
-    if (!glfwInit())
+    glfwSetErrorCallback([](int code, const char* msg) { std::fprintf(stderr, "GLFW error %d: %s\n", code, msg); });
+    if (!glfwInit()) {
+        std::fprintf(stderr, "Failed to initialize GLFW\n");
         return 1;
+    }
 
     const char* glslVersion = "#version 130";
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
     GLFWwindow* window = glfwCreateWindow(1600, 900, "ImGui DrawTool demo", nullptr, nullptr);
-    if (!window)
+    if (!window) {
+        std::fprintf(stderr, "Failed to create a window with an OpenGL 3.0 context. "
+                             "Update your GPU driver; remote desktop / VMs may lack OpenGL.\n");
+        glfwTerminate();
         return 1;
+    }
     glfwMakeContextCurrent(window);
     glfwSwapInterval(0);  // vsync OFF -- otherwise you're capped at refresh rate
 
@@ -151,6 +158,7 @@ int main(int argc, char** argv) {
     ImGui::StyleColorsDark();
     ImGui_ImplGlfw_InitForOpenGL(window, true);
     ImGui_ImplOpenGL3_Init(glslVersion);
+    std::printf("DrawTool demo running (close the window or press Ctrl+C to quit)\n");
 
     DrawTool tool;
 
